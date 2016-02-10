@@ -1,0 +1,181 @@
+---
+title: "Movie Ratings: Critics versus Fans"
+output:
+  html_document:
+    toc: true
+    theme: united
+---
+
+# Load data and libraries
+
+```{r}
+library(ggplot2)
+source('https://raw.githubusercontent.com/strongio/strong-R/master/strong-ggplot.R')
+library(dplyr)
+
+data <- read.csv('data-movies.csv')
+
+# filter to movies with a year
+data <- data %>% filter(!is.na(year))
+```
+
+# Normalize IMDB and Metacritic scales
+
+```{r}
+data$imdb_scaled <- (data$rating_imdb - mean(data$rating_imdb)) / sd(data$rating_imdb)
+data$metacritic_scaled <- (data$rating_metacritic - mean(data$rating_metacritic,na.rm=T)) / sd(data$rating_metacritic,na.rm=T)
+```
+
+# Overall Link
+
+## Visualize
+
+```{r}
+ggplot(data, aes(x=metacritic_scaled, y=imdb_scaled)) +
+                geom_point(alpha=.5) +
+                stat_smooth(method="lm", color='#00cbfe', se=F) +
+                scale_y_continuous('Metacritic', breaks=c(-2,2), labels=c('Low','High')) +
+                scale_x_continuous('IMDB', breaks=c(-2,2), labels=c('Low','High')) +
+                theme_strong
+
+ggsave('metacritic-imdb.png')
+```
+
+## Quantify the link
+
+```{r}
+with(data,
+     cor.test(imdb_scaled, metacritic_scaled))
+
+# shared variance:
+with(data,
+    cor.test(imdb_scaled, metacritic_scaled)$estimate^2)
+```
+
+# Are critics and fans converging in modern era?
+
+## Correlate within each year
+
+```{r}
+boot_correlation <- function(data, i) cor(data[i, 1], data[i, 2],use='pairwise.complete.obs')
+
+models_year <- data %>%
+                filter(year < 2016) %>%
+                group_by(year) %>%
+                mutate(
+                  metacritic_scaled = (metacritic_scaled - mean(metacritic_scaled, na.rm=T)) / sd(metacritic_scaled, na.rm=T),
+                  imdb_scaled = (imdb_scaled - mean(imdb_scaled, na.rm=T)) / sd(imdb_scaled, na.rm=T)
+                ) %>%
+                #do(data.frame(cor=cor(.$metacritic_scaled,.$imdb_scaled,use='pairwise.complete.obs')))
+                do(broom::tidy(boot(cbind(.$imdb_scaled, .$metacritic_scaled), boot_correlation, 1000))) %>%
+                mutate(
+                  ci.high = statistic - std.error*1.96,
+                  ci.low = statistic + std.error*1.96
+                )
+```
+
+## Visualize
+
+```{r}
+ggplot(data %>% filter(!is.na(year) & year < 2016), aes(x=metacritic_scaled, y=imdb_scaled)) +
+                geom_point(alpha=.5) +
+                stat_smooth(method="lm", color='#00cbfe', se=F) +
+                scale_y_continuous('Metacritic', labels=c()) +
+                scale_x_continuous('IMDB', labels=c()) +
+                facet_wrap(~year) +
+                theme_strong
+
+ggsave('metacritic-imdb-year.png', width=10, height=10)
+
+ggplot(models_year, aes(x=year, y=statistic)) +
+                geom_point() +
+                geom_errorbar(aes(ymin=ci.low, ymax=ci.high), width=.1) +
+                stat_smooth(method="loess", color='#00cbfe', se=F) +
+                scale_y_continuous('Correlation (Metacritic, IMDB)') +
+                scale_x_continuous('Year', breaks=c(2001,2005,2010,2015)) +
+                theme_strong
+
+ggsave('metacritic-imdb-cor-by-year.png')
+```
+
+# Which movies do they disagree on most?
+
+```{r}
+data$diff <- data$metacritic_scaled - data$imdb_scaled
+
+# combine top 25 negative (fan favorites) and top 25 positive (critical darlings):
+(top50_diff_low <- data %>%
+    arrange(desc(diff)) %>%
+    slice(1:25) %>%
+    select(year, title, imdb_scaled, metacritic_scaled, diff))
+
+(top50_diff_high <- data %>%
+    arrange(diff) %>%
+    slice(1:25) %>%
+    select(year, title, imdb_scaled, metacritic_scaled, diff))
+
+(top50_diff <- bind_rows(top50_diff_low, top50_diff_high) %>% arrange(diff))
+
+# note: negative == critics lower, positive == critics higher
+
+ggplot(top50_diff, aes(x=factor(title, levels=title[order(diff)]), y=diff)) +
+        geom_bar(stat="identity", fill='#00cbfe') +
+        scale_y_continuous('', breaks=c(-2,2), labels=c('Fan Favorite','Critical Darling')) +
+        scale_x_discrete('') +
+        coord_flip() +
+        theme_strong
+
+# those are a bunch of obscure movies... let's look for disagreements with movies with lots of votes
+
+# limit to movies on top half of vote-getters
+
+# top 50 on top 10% of vote-getters:
+(top50_diff_low_highvotes <- data %>%
+    arrange(desc(votes_imdb)) %>%
+    slice(1:(n()/10)) %>%
+    arrange(desc(diff)) %>%
+    slice(1:25) %>%
+    select(year, title, imdb_scaled, metacritic_scaled, diff))
+
+(top50_diff_high_highvotes <- data %>%
+    arrange(desc(votes_imdb)) %>%
+    slice(1:(n()/10)) %>%
+    arrange(diff) %>%
+    slice(1:25) %>%
+    select(year, title, imdb_scaled, metacritic_scaled, diff))
+
+(top50_diff_highvotes <- bind_rows(top50_diff_high_highvotes, top50_diff_low_highvotes) %>% arrange(diff))
+
+# note: negative == critics lower, positive == critics higher
+
+ggplot(top50_diff_highvotes, aes(x=factor(title, levels=title[order(diff)]), y=diff)) +
+        geom_bar(stat="identity", fill='#00cbfe') +
+        scale_y_continuous('', breaks=c(-2,2), labels=c('Fan Favorite','Critical Darling')) +
+        scale_x_discrete('') +
+        coord_flip() +
+        theme_strong
+
+# that's an ugly plot... try ggrepel
+library(ggrepel)
+
+ggplot(data, aes(x=metacritic_scaled, y=imdb_scaled)) +
+        geom_point(alpha=.03) +
+        stat_smooth(method="lm", color='#00cbfe', se=F) +  
+        geom_point(data=filter(data, title %in% top50_diff_highvotes$title), alpha=1) +
+        geom_text_repel(data=filter(data, title %in% top50_diff_highvotes$title), aes(label=title),
+                            fontface = 'bold',
+                            box.padding = unit(0.5, 'lines'),
+                            point.padding = unit(.5, 'lines'),
+                            segment.color = '#888888',
+                            segment.size = 0.5,
+                            force = 1,
+                            max.iter = 2e5
+                      ) +
+        scale_y_continuous('IMDB', breaks=c(-2,2), labels=c('Low','High')) +
+        scale_x_continuous('Metacritic', breaks=c(-2,2), labels=c('Low','High')) +
+        theme_strong
+
+ggsave('fan-favs-and-critical-darlings.png', width=11, height=7)
+```
+
+
