@@ -12,6 +12,7 @@ output:
 library(ggplot2)
 source('https://raw.githubusercontent.com/strongio/strong-R/master/strong-ggplot.R')
 library(dplyr)
+library(boot)
 
 data <- read.csv('data-movies.csv')
 
@@ -34,11 +35,24 @@ data$metacritic_scaled <- (data$rating_metacritic - mean(data$rating_metacritic,
 ggplot(data, aes(x=metacritic_scaled, y=imdb_scaled)) +
                 geom_point(alpha=.5) +
                 stat_smooth(method="lm", color='#00cbfe', se=F) +
-                scale_y_continuous('Metacritic', breaks=c(-2,2), labels=c('Low','High')) +
-                scale_x_continuous('IMDB', breaks=c(-2,2), labels=c('Low','High')) +
+                scale_y_continuous('IMDB', breaks=c(-2,2), labels=c('Low','High')) +
+                scale_x_continuous('Metacritic', breaks=c(-2,2), labels=c('Low','High')) +
                 theme_strong
 
 ggsave('metacritic-imdb.png')
+
+# by genre:
+data$first_genre <- gsub(',.*','',data$genre)
+
+ggplot(data %>% filter(!is.na(first_genre) & first_genre != '' & !is.na(metacritic_scaled)), aes(x=metacritic_scaled, y=imdb_scaled)) +
+                geom_point(alpha=.5) +
+                stat_smooth(method="lm", color='#00cbfe', se=F) +
+                scale_y_continuous('IMDB', breaks=c(-2,2), labels=c('Low','High')) +
+                scale_x_continuous('Metacritic', breaks=c(-2,2), labels=c('Low','High')) +
+                facet_wrap(~first_genre) +
+                theme_strong
+
+ggsave('metacritic-imdb-genres.png', width=10, height=10)
 ```
 
 ## Quantify the link
@@ -80,8 +94,8 @@ models_year <- data %>%
 ggplot(data %>% filter(!is.na(year) & year < 2016), aes(x=metacritic_scaled, y=imdb_scaled)) +
                 geom_point(alpha=.5) +
                 stat_smooth(method="lm", color='#00cbfe', se=F) +
-                scale_y_continuous('Metacritic', labels=c()) +
-                scale_x_continuous('IMDB', labels=c()) +
+                scale_y_continuous('IMDB', labels=c()) +
+                scale_x_continuous('Metacritic', labels=c()) +
                 facet_wrap(~year) +
                 theme_strong
 
