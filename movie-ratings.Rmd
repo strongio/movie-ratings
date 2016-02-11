@@ -94,8 +94,8 @@ models_year <- data %>%
 ggplot(data %>% filter(!is.na(year) & year < 2016), aes(x=metacritic_scaled, y=imdb_scaled)) +
                 geom_point(alpha=.5) +
                 stat_smooth(method="lm", color='#00cbfe', se=F) +
-                scale_y_continuous('IMDB', labels=c()) +
-                scale_x_continuous('Metacritic', labels=c()) +
+                scale_y_continuous('IMDB', breaks=c(-2,2), labels=c('Low','High')) +
+                scale_x_continuous('Metacritic', breaks=c(-2,2), labels=c('Low','High')) +
                 facet_wrap(~year) +
                 theme_strong
 
